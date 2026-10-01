@@ -15,6 +15,17 @@ const _schema = i.schema({
       updatedAt: i.number().indexed(),
     }),
   },
+  // Live editing: Yjs updates and cursor positions, base64-encoded.
+  rooms: {
+    doc: {
+      presence: i.entity({}),
+      topics: {
+        update: i.entity({ update: i.string() }),
+        sync: i.entity({ sv: i.string() }),
+        awareness: i.entity({ update: i.string() }),
+      },
+    },
+  },
 })
 
 type _AppSchema = typeof _schema

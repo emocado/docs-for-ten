@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { Session } from '@supabase/supabase-js'
-import { supabase } from './supabase'
+import { db } from './db'
 import Auth from './Auth'
 import DocList from './DocList'
 import Editor from './Editor'
@@ -8,31 +7,27 @@ import Editor from './Editor'
 const docIdFromHash = () => location.hash.match(/^#\/doc\/(.+)$/)?.[1] ?? null
 
 export default function App() {
-  const [session, setSession] = useState<Session | null>(null)
+  const { isLoading, user } = db.useAuth()
   const [docId, setDocId] = useState(docIdFromHash)
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => setSession(data.session))
-    const { data } = supabase.auth.onAuthStateChange((_event, s) => setSession(s))
     const onHash = () => setDocId(docIdFromHash())
     window.addEventListener('hashchange', onHash)
-    return () => {
-      data.subscription.unsubscribe()
-      window.removeEventListener('hashchange', onHash)
-    }
+    return () => window.removeEventListener('hashchange', onHash)
   }, [])
 
-  if (!session) return <Auth />
-  const email = session.user.email ?? 'anonymous'
+  if (isLoading) return null
+  if (!user) return <Auth />
+  const email = user.email ?? 'anonymous'
 
   return (
     <main>
       <nav>
         <a href="#" className="brand">Docs for Ten</a>
         <span>{email}</span>
-        <button onClick={() => supabase.auth.signOut()}>Sign out</button>
+        <button onClick={() => db.auth.signOut()}>Sign out</button>
       </nav>
-      {docId ? <Editor key={docId} docId={docId} email={email} /> : <DocList userId={session.user.id} />}
+      {docId ? <Editor key={docId} docId={docId} email={email} /> : <DocList userId={user.id} email={email} />}
     </main>
   )
 }

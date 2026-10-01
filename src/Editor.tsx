@@ -4,10 +4,10 @@ import { EditorContent, useEditor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Collaboration from '@tiptap/extension-collaboration'
 import CollaborationCaret from '@tiptap/extension-collaboration-caret'
-import { supabase } from './supabase'
-import { SupabaseProvider, fromB64, toB64 } from './SupabaseProvider'
+import { db } from './db'
+import { InstantProvider, fromB64, toB64 } from './InstantProvider'
 
-type Session = { doc: Y.Doc; provider: SupabaseProvider }
+type Session = { doc: Y.Doc; provider: InstantProvider }
 type Peer = { name: string; color: string }
 
 const COLORS = ['#e6194b', '#3cb44b', '#4363d8', '#f58231', '#911eb4', '#469990', '#9a6324', '#800000', '#808000', '#000075']
@@ -20,21 +20,19 @@ export default function Editor({ docId, email }: { docId: string; email: string 
   useEffect(() => {
     let current: Session | undefined
     let cancelled = false
-    supabase
-      .from('documents')
-      .select('title, content')
-      .eq('id', docId)
-      .single()
-      .then(({ data, error }) => {
+    db.queryOnce({ documents: { $: { where: { id: docId } } } })
+      .then(({ data }) => {
         if (cancelled) return
-        if (error) return setError(error.message)
+        const row = data.documents[0]
+        if (!row) return setError('Document not found')
         const doc = new Y.Doc()
-        if (data.content) Y.applyUpdate(doc, fromB64(data.content))
+        if (row.content) Y.applyUpdate(doc, fromB64(row.content))
         const meta = doc.getMap<string>('meta')
-        if (!meta.has('title')) meta.set('title', data.title)
-        current = { doc, provider: new SupabaseProvider(docId, doc) }
+        if (!meta.has('title')) meta.set('title', row.title)
+        current = { doc, provider: new InstantProvider(docId, doc) }
         setSession(current)
       })
+      .catch((err) => !cancelled && setError(err.message))
     return () => {
       cancelled = true
       current?.provider.destroy()
@@ -79,14 +77,16 @@ function LiveEditor({ docId, email, doc, provider }: Session & { docId: string; 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout>
     const save = async () => {
-      await supabase
-        .from('documents')
-        .update({
-          title: meta.get('title') || 'Untitled document',
-          content: toB64(Y.encodeStateAsUpdate(doc)),
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', docId)
+      await db.transact(
+        db.tx.documents[docId].update(
+          {
+            title: meta.get('title') || 'Untitled document',
+            content: toB64(Y.encodeStateAsUpdate(doc)),
+            updatedAt: Date.now(),
+          },
+          { upsert: false },
+        ),
+      )
       setSaved(true)
     }
     const onUpdate = () => {
