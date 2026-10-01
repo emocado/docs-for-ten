@@ -1,6 +1,7 @@
 # Docs for Ten
 
 A tiny Google Docs for a group of ten: write the same document together, at the same time, and see everyone's cursor live.
+n**Live:** https://emocado.github.io/docs-for-ten/
 
 ## The plan
 
