@@ -3,12 +3,12 @@ import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate, removeAwareness
 import type { RealtimeChannel } from '@supabase/supabase-js'
 import { supabase } from './supabase'
 
-const toB64 = (u: Uint8Array) => {
+export const toB64 = (u: Uint8Array) => {
   let s = ''
   for (const byte of u) s += String.fromCharCode(byte)
   return btoa(s)
 }
-const fromB64 = (s: string) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0))
+export const fromB64 = (s: string) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0))
 
 // Syncs a Y.Doc between everyone who has the same document open, using a
 // private Supabase Realtime broadcast channel. Persistence is handled separately.
