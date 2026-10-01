@@ -6,14 +6,12 @@ import Collaboration from '@tiptap/extension-collaboration'
 import CollaborationCaret from '@tiptap/extension-collaboration-caret'
 import { get, onValue, ref, update } from 'firebase/database'
 import { db } from './firebase'
-import { FirebaseProvider } from './FirebaseProvider'
+import { FirebaseProvider, userFor } from './FirebaseProvider'
 
 type Session = { doc: Y.Doc; provider: FirebaseProvider; savedTitle: string }
 type Peer = { name: string; color: string }
 
-const COLORS = ['#e6194b', '#3cb44b', '#4363d8', '#f58231', '#911eb4', '#469990', '#9a6324', '#800000', '#808000', '#000075']
 const TITLE_MAX = 200 // Same limit as database.rules.json.
-const colorFor = (s: string) => COLORS[[...s].reduce((h, c) => h + c.charCodeAt(0), 0) % COLORS.length]
 
 export default function Editor({ docId, email }: { docId: string; email: string }) {
   const [session, setSession] = useState<Session | null>(null)
@@ -65,7 +63,7 @@ function LiveEditor({ docId, email, doc, provider, savedTitle }: Session & { doc
     extensions: [
       StarterKit.configure({ undoRedo: false }),
       Collaboration.configure({ document: doc }),
-      CollaborationCaret.configure({ provider, user: { name: email.split('@')[0], color: colorFor(email) } }),
+      CollaborationCaret.configure({ provider, user: userFor(email) }),
     ],
   })
 
