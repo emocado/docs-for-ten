@@ -51,9 +51,19 @@ export class FirebaseProvider {
       }),
       onChildAdded(awarenessRef, applyAwareness),
       onChildChanged(awarenessRef, applyAwareness),
-      onChildRemoved(awarenessRef, (snap) => removeAwarenessStates(this.awareness, [Number(snap.key)], this)),
+      onChildRemoved(awarenessRef, (snap) => {
+        // Our own node is removed by onDisconnect after a network drop; keep our local state.
+        if (Number(snap.key) !== doc.clientID) removeAwarenessStates(this.awareness, [Number(snap.key)], this)
+      }),
+      // onDisconnect runs once per connection, so set it up again on every (re)connect
+      // and re-announce our state (bumping its clock) in case the server already removed it.
+      onValue(ref(db, '.info/connected'), (snap) => {
+        if (!snap.val()) return
+        onDisconnect(this.myAwarenessRef()).remove()
+        const state = this.awareness.getLocalState()
+        if (state) this.awareness.setLocalState(state)
+      }),
     ]
-    onDisconnect(this.myAwarenessRef()).remove()
 
     doc.on('update', this.onDocUpdate)
     this.awareness.on('update', this.onAwarenessUpdate)
