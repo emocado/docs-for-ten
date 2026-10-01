@@ -4,7 +4,7 @@ import { EditorContent, useEditor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Collaboration from '@tiptap/extension-collaboration'
 import CollaborationCaret from '@tiptap/extension-collaboration-caret'
-import { get, ref, update } from 'firebase/database'
+import { get, onValue, ref, update } from 'firebase/database'
 import { db } from './firebase'
 import { FirebaseProvider } from './FirebaseProvider'
 
@@ -12,6 +12,7 @@ type Session = { doc: Y.Doc; provider: FirebaseProvider; savedTitle: string }
 type Peer = { name: string; color: string }
 
 const COLORS = ['#e6194b', '#3cb44b', '#4363d8', '#f58231', '#911eb4', '#469990', '#9a6324', '#800000', '#808000', '#000075']
+const TITLE_MAX = 200 // Same limit as database.rules.json.
 const colorFor = (s: string) => COLORS[[...s].reduce((h, c) => h + c.charCodeAt(0), 0) % COLORS.length]
 
 export default function Editor({ docId, email }: { docId: string; email: string }) {
@@ -21,6 +22,12 @@ export default function Editor({ docId, email }: { docId: string; email: string 
   useEffect(() => {
     let current: Session | undefined
     let cancelled = false
+    const close = () => {
+      cancelled = true
+      current?.provider.destroy()
+      current?.doc.destroy()
+      current = undefined
+    }
     get(ref(db, `documents/${docId}/title`))
       .then((snap) => {
         if (cancelled) return
@@ -30,10 +37,15 @@ export default function Editor({ docId, email }: { docId: string; email: string 
         setSession(current)
       })
       .catch((err) => !cancelled && setError(err.message))
+    // Close the editor if the owner deletes the document while it's open.
+    const unsubscribe = onValue(ref(db, `documents/${docId}/ownerId`), (snap) => {
+      if (snap.exists() || !current) return
+      close()
+      setError('This document was deleted')
+    })
     return () => {
-      cancelled = true
-      current?.provider.destroy()
-      current?.doc.destroy()
+      unsubscribe()
+      close()
     }
   }, [docId])
 
@@ -47,6 +59,7 @@ function LiveEditor({ docId, email, doc, provider, savedTitle }: Session & { doc
   const [title, setTitle] = useState(meta.get('title') ?? savedTitle)
   const [peers, setPeers] = useState<Peer[]>([])
   const [saved, setSaved] = useState(true)
+  const [saveError, setSaveError] = useState('')
 
   const editor = useEditor({
     extensions: [
@@ -73,13 +86,19 @@ function LiveEditor({ docId, email, doc, provider, savedTitle }: Session & { doc
   // Save a snapshot a second after this person's last change.
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout>
-    const save = async () => {
-      await update(ref(db), {
-        ...provider.snapshotWrites(),
-        [`documents/${docId}/title`]: meta.get('title') || savedTitle,
+    const save = () => {
+      const { writes, onSaved } = provider.snapshotWrites()
+      update(ref(db), {
+        ...writes,
+        [`documents/${docId}/title`]: String(meta.get('title') || savedTitle).slice(0, TITLE_MAX),
         [`documents/${docId}/updatedAt`]: Date.now(),
       })
-      setSaved(true)
+        .then(() => {
+          onSaved()
+          setSaved(true)
+          setSaveError('')
+        })
+        .catch((err) => setSaveError(err.message))
     }
     const onUpdate = (_update: Uint8Array, origin: unknown) => {
       if (origin === provider) return
@@ -98,12 +117,12 @@ function LiveEditor({ docId, email, doc, provider, savedTitle }: Session & { doc
     <div className="editor-page">
       <header className="toolbar">
         <a href="#">← All documents</a>
-        <input className="title" value={title} onChange={(e) => meta.set('title', e.target.value)} />
-        <span className="status">{saved ? 'Saved' : 'Saving…'}</span>
+        <input className="title" maxLength={TITLE_MAX} value={title} onChange={(e) => meta.set('title', e.target.value)} />
+        <span className="status">{saveError ? `Save failed: ${saveError}` : saved ? 'Saved' : 'Saving…'}</span>
         <div className="peers">
           {peers.map((p, i) => (
             <span key={i} className="peer" style={{ background: p.color }} title={p.name}>
-              {p.name[0]?.toUpperCase()}
+              {p.name?.[0]?.toUpperCase()}
             </span>
           ))}
         </div>
