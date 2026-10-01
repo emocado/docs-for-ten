@@ -32,7 +32,7 @@ export default function DocList({ userId, email }: { userId: string; email: stri
 
   function remove(doc: Doc) {
     if (!confirm(`Delete "${doc.title}"?`)) return
-    update(ref(db), { [`documents/${doc.id}`]: null, [`updates/${doc.id}`]: null }).catch((err) => setError(err.message))
+    update(ref(db), { [`documents/${doc.id}`]: null, [`docContent/${doc.id}`]: null, [`updates/${doc.id}`]: null, [`awareness/${doc.id}`]: null }).catch((err) => setError(err.message))
   }
 
   return (
@@ -42,9 +42,9 @@ export default function DocList({ userId, email }: { userId: string; email: stri
       <ul>
         {docs.map((doc) => (
           <li key={doc.id}>
-            <a href={`#/doc/${doc.id}`}>{doc.title}</a>
+            <a href={`#/doc/${doc.id}`}>{String(doc.title)}</a>
             <small>
-              {doc.ownerEmail} · edited {new Date(doc.updatedAt).toLocaleString()}
+              {String(doc.ownerEmail)} · edited {new Date(doc.updatedAt).toLocaleString()}
             </small>
             {doc.ownerId === userId && <button onClick={() => remove(doc)}>Delete</button>}
           </li>

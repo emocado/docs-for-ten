@@ -8,26 +8,53 @@
       "$docId": {
         // Create it as yourself, with your real email, or delete it if it's yours.
         ".write": "auth != null && (data.exists() ? !newData.exists() && data.child('ownerId').val() === auth.uid : newData.child('ownerId').val() === auth.uid && newData.child('ownerEmail').val() === auth.token.email)",
+        ".validate": "newData.hasChildren(['title', 'ownerId', 'ownerEmail', 'updatedAt'])",
         // Members can change these on an existing document, but not remove them.
-        "title": { ".write": "auth != null && data.parent().exists() && newData.exists()" },
-        "updatedAt": { ".write": "auth != null && data.parent().exists() && newData.exists()" },
-        "content": { ".write": "auth != null && data.parent().exists() && newData.exists()" }
+        "title": {
+          ".write": "auth != null && data.parent().exists() && newData.exists()",
+          ".validate": "newData.isString() && newData.val().length <= 200"
+        },
+        "updatedAt": {
+          ".write": "auth != null && data.parent().exists() && newData.exists()",
+          ".validate": "newData.isNumber()"
+        },
+        "ownerId": { ".validate": "newData.isString() && newData.val().length <= 128" },
+        "ownerEmail": { ".validate": "newData.isString() && newData.val().length <= 320" },
+        // Snapshots used to live here; it may only be cleared, and only while moving it to docContent.
+        "content": { ".write": "auth != null && !newData.exists() && newData.parent().parent().parent().child('docContent/' + $docId).exists()" }
+      }
+    },
+    // Saved Yjs snapshots, kept apart from the metadata above so the list stays small.
+    // Members can save one while the document exists; only its owner can remove it.
+    "docContent": {
+      "$docId": {
+        ".read": "auth != null",
+        ".write": "auth != null && (newData.exists() ? root.child('documents/' + $docId).exists() : root.child('documents/' + $docId + '/ownerId').val() === auth.uid)",
+        ".validate": "newData.isString() && newData.val().length <= 5000000"
       }
     },
     "updates": {
       "$docId": {
         ".read": "auth != null",
-        // Only the document's owner can clear the whole list; single edits can be added or compacted by anyone.
+        // Only the document's owner can clear the whole list.
         ".write": "auth != null && !newData.exists() && root.child('documents/' + $docId + '/ownerId').val() === auth.uid",
-        "$updateId": { ".write": "auth != null" }
+        // Single edits can be added while the document exists, and compacted by anyone.
+        "$updateId": {
+          ".write": "auth != null && (!newData.exists() || root.child('documents/' + $docId).exists())",
+          ".validate": "newData.isString() && newData.val().length <= 1000000"
+        }
       }
     },
     "awareness": {
       "$docId": {
         ".read": "auth != null",
-        // Each cursor belongs to whoever wrote it first, and carries their real email.
+        ".write": "auth != null && !newData.exists() && root.child('documents/' + $docId + '/ownerId').val() === auth.uid",
+        // Each cursor belongs to whoever wrote it first, carries their real email,
+        // and can only be added while the document exists.
         "$clientId": {
-          ".write": "auth != null && (!data.exists() || data.child('uid').val() === auth.uid) && (!newData.exists() || (newData.child('uid').val() === auth.uid && newData.child('email').val() === auth.token.email))"
+          ".write": "auth != null && (!data.exists() || data.child('uid').val() === auth.uid) && (!newData.exists() || (root.child('documents/' + $docId).exists() && newData.child('uid').val() === auth.uid && newData.child('email').val() === auth.token.email))",
+          ".validate": "newData.hasChildren(['uid', 'email', 'update'])",
+          "update": { ".validate": "newData.isString() && newData.val().length <= 10000" }
         }
       }
     }
