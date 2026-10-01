@@ -9,6 +9,10 @@
         ".write": "auth != null && (newData.exists() ? newData.child('ownerId').val() === (data.exists() ? data.child('ownerId').val() : auth.uid) : data.child('ownerId').val() === auth.uid)"
       }
     },
+    // Saved Yjs snapshots, kept apart from the metadata above so the list stays small.
+    "docContent": {
+      "$docId": { ".read": "auth != null", ".write": "auth != null" }
+    },
     "updates": {
       "$docId": { ".read": "auth != null", ".write": "auth != null" }
     },

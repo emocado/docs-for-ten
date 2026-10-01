@@ -1,6 +1,6 @@
 import * as Y from 'yjs'
 import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate, removeAwarenessStates } from 'y-protocols/awareness'
-import { onChildAdded, onChildChanged, onChildRemoved, onDisconnect, onValue, push, ref, remove, set } from 'firebase/database'
+import { get, onChildAdded, onChildChanged, onChildRemoved, onDisconnect, onValue, push, ref, remove, set } from 'firebase/database'
 import { db } from './firebase'
 
 export const toB64 = (u: Uint8Array) => {
@@ -12,7 +12,7 @@ export const fromB64 = (s: string) => Uint8Array.from(atob(s), (c) => c.charCode
 
 // Syncs a Y.Doc between everyone who has the same document open.
 // Every edit is pushed to updates/<docId>, and everyone (including late joiners)
-// merges the saved snapshot plus that list. Cursors live in awareness/<docId>/<clientID>.
+// merges the saved snapshot (docContent/<docId>) plus that list. Cursors live in awareness/<docId>/<clientID>.
 export class FirebaseProvider {
   awareness: Awareness
   private doc: Y.Doc
@@ -31,13 +31,14 @@ export class FirebaseProvider {
       applyAwarenessUpdate(this.awareness, fromB64(snap.val()), this)
 
     this.unsubscribes = [
-      // The saved snapshot, re-merged whenever someone compacts the update list.
-      onValue(ref(db, `documents/${docId}/content`), (snap) => {
-        if (snap.exists()) Y.applyUpdate(doc, fromB64(snap.val()), this)
-      }),
       onChildAdded(updatesRef, (snap) => {
         Y.applyUpdate(doc, fromB64(snap.val()), this)
         this.appliedKeys.add(snap.key!)
+      }),
+      // While connected we see every update before it is compacted away, so the saved
+      // snapshot is only read on (re)connecting, after the update listener is in place.
+      onValue(ref(db, '.info/connected'), (snap) => {
+        if (snap.val()) this.loadSnapshot()
       }),
       onChildAdded(awarenessRef, applyAwareness),
       onChildChanged(awarenessRef, applyAwareness),
@@ -52,11 +53,18 @@ export class FirebaseProvider {
   // Database writes that fold the updates seen so far into a saved snapshot.
   snapshotWrites(): Record<string, string | null> {
     const writes: Record<string, string | null> = {
-      [`documents/${this.docId}/content`]: toB64(Y.encodeStateAsUpdate(this.doc)),
+      [`docContent/${this.docId}`]: toB64(Y.encodeStateAsUpdate(this.doc)),
+      [`documents/${this.docId}/content`]: null, // snapshots used to live here
     }
     for (const key of this.appliedKeys) writes[`updates/${this.docId}/${key}`] = null
     this.appliedKeys.clear()
     return writes
+  }
+
+  private async loadSnapshot() {
+    let snap = await get(ref(db, `docContent/${this.docId}`))
+    if (!snap.exists()) snap = await get(ref(db, `documents/${this.docId}/content`))
+    if (snap.exists()) Y.applyUpdate(this.doc, fromB64(snap.val()), this)
   }
 
   private myAwarenessRef() {
