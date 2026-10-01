@@ -6,19 +6,39 @@
       ".read": "auth != null",
       ".indexOn": ["updatedAt"],
       "$docId": {
-        ".write": "auth != null && (newData.exists() ? newData.child('ownerId').val() === (data.exists() ? data.child('ownerId').val() : auth.uid) : data.child('ownerId').val() === auth.uid)"
+        ".write": "auth != null && (newData.exists() ? newData.child('ownerId').val() === (data.exists() ? data.child('ownerId').val() : auth.uid) : data.child('ownerId').val() === auth.uid)",
+        ".validate": "newData.hasChildren(['title', 'ownerId', 'ownerEmail', 'updatedAt'])",
+        "title": { ".validate": "newData.isString() && newData.val().length <= 200" },
+        "ownerId": { ".validate": "newData.isString() && newData.val().length <= 128" },
+        "ownerEmail": { ".validate": "newData.isString() && newData.val().length <= 320" },
+        "updatedAt": { ".validate": "newData.isNumber()" },
+        "content": { ".validate": "newData.isString() && newData.val().length <= 5000000" }
       }
     },
     // Saved Yjs snapshots, kept apart from the metadata above so the list stays small.
     "docContent": {
-      "$docId": { ".read": "auth != null", ".write": "auth != null" }
+      "$docId": {
+        ".read": "auth != null",
+        ".write": "auth != null",
+        ".validate": "newData.isString() && newData.val().length <= 5000000"
+      }
     },
     // Edits and cursors can only be added while their document exists (clearing them is always allowed).
     "updates": {
-      "$docId": { ".read": "auth != null", ".write": "auth != null && (root.child('documents/' + $docId).exists() || !newData.exists())" }
+      "$docId": {
+        ".read": "auth != null",
+        ".write": "auth != null && (!newData.exists() || root.child('documents/' + $docId).exists())",
+        ".validate": "newData.hasChildren()",
+        "$key": { ".validate": "newData.isString() && newData.val().length <= 1000000" }
+      }
     },
     "awareness": {
-      "$docId": { ".read": "auth != null", ".write": "auth != null && (root.child('documents/' + $docId).exists() || !newData.exists())" }
+      "$docId": {
+        ".read": "auth != null",
+        ".write": "auth != null && (!newData.exists() || root.child('documents/' + $docId).exists())",
+        ".validate": "newData.hasChildren()",
+        "$clientId": { ".validate": "newData.isString() && newData.val().length <= 10000" }
+      }
     }
   }
 }

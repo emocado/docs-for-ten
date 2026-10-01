@@ -10,6 +10,15 @@ export const toB64 = (u: Uint8Array) => {
 }
 export const fromB64 = (s: string) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0))
 
+// Skips (and logs) a malformed entry instead of letting it break syncing.
+const tryApply = (path: string, apply: () => void) => {
+  try {
+    apply()
+  } catch (err) {
+    console.error(`Skipping bad data at ${path}`, err)
+  }
+}
+
 // Syncs a Y.Doc between everyone who has the same document open.
 // Every edit is pushed to updates/<docId>, and everyone (including late joiners)
 // merges the saved snapshot (docContent/<docId>) plus that list. Cursors live in awareness/<docId>/<clientID>.
@@ -27,12 +36,13 @@ export class FirebaseProvider {
 
     const updatesRef = ref(db, `updates/${docId}`)
     const awarenessRef = ref(db, `awareness/${docId}`)
-    const applyAwareness = (snap: { val: () => string }) =>
-      applyAwarenessUpdate(this.awareness, fromB64(snap.val()), this)
+    const applyAwareness = (snap: { key: string | null; val: () => string }) =>
+      tryApply(`awareness/${docId}/${snap.key}`, () => applyAwarenessUpdate(this.awareness, fromB64(snap.val()), this))
 
     this.unsubscribes = [
       onChildAdded(updatesRef, (snap) => {
-        Y.applyUpdate(doc, fromB64(snap.val()), this)
+        tryApply(`updates/${docId}/${snap.key}`, () => Y.applyUpdate(doc, fromB64(snap.val()), this))
+        // Bad entries are marked applied too, so the next snapshot clears them out.
         this.appliedKeys.add(snap.key!)
       }),
       // While connected we see every update before it is compacted away, so the saved
@@ -75,7 +85,7 @@ export class FirebaseProvider {
   private async loadSnapshot() {
     let snap = await get(ref(db, `docContent/${this.docId}`))
     if (!snap.exists()) snap = await get(ref(db, `documents/${this.docId}/content`))
-    if (snap.exists()) Y.applyUpdate(this.doc, fromB64(snap.val()), this)
+    if (snap.exists()) tryApply(snap.ref.toString(), () => Y.applyUpdate(this.doc, fromB64(snap.val()), this))
   }
 
   private myAwarenessRef() {
