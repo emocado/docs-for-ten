@@ -6,14 +6,31 @@
       ".read": "auth != null",
       ".indexOn": ["updatedAt"],
       "$docId": {
-        ".write": "auth != null && (newData.exists() ? newData.child('ownerId').val() === (data.exists() ? data.child('ownerId').val() : auth.uid) : data.child('ownerId').val() === auth.uid)"
+        ".write": "auth != null && (newData.exists() ? newData.child('ownerId').val() === (data.exists() ? data.child('ownerId').val() : auth.uid) : data.child('ownerId').val() === auth.uid)",
+        ".validate": "newData.hasChildren(['title', 'ownerId', 'ownerEmail', 'updatedAt'])",
+        "title": { ".validate": "newData.isString() && newData.val().length <= 200" },
+        "ownerId": { ".validate": "newData.isString() && newData.val().length <= 128" },
+        "ownerEmail": { ".validate": "newData.isString() && newData.val().length <= 320" },
+        "updatedAt": { ".validate": "newData.isNumber()" },
+        "content": { ".validate": "newData.isString() && newData.val().length <= 5000000" }
       }
     },
+    // Only for documents that exist; removing entries is always allowed so cleanup still works after a delete.
     "updates": {
-      "$docId": { ".read": "auth != null", ".write": "auth != null" }
+      "$docId": {
+        ".read": "auth != null",
+        ".write": "auth != null && (!newData.exists() || root.child('documents/' + $docId).exists())",
+        ".validate": "newData.hasChildren()",
+        "$key": { ".validate": "newData.isString() && newData.val().length <= 1000000" }
+      }
     },
     "awareness": {
-      "$docId": { ".read": "auth != null", ".write": "auth != null" }
+      "$docId": {
+        ".read": "auth != null",
+        ".write": "auth != null && (!newData.exists() || root.child('documents/' + $docId).exists())",
+        ".validate": "newData.hasChildren()",
+        "$clientId": { ".validate": "newData.isString() && newData.val().length <= 10000" }
+      }
     }
   }
 }
