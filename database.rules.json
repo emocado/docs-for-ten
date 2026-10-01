@@ -15,7 +15,15 @@
         "content": { ".validate": "newData.isString() && newData.val().length <= 5000000" }
       }
     },
-    // Only for documents that exist; removing entries is always allowed so cleanup still works after a delete.
+    // Saved Yjs snapshots, kept apart from the metadata above so the list stays small.
+    "docContent": {
+      "$docId": {
+        ".read": "auth != null",
+        ".write": "auth != null",
+        ".validate": "newData.isString() && newData.val().length <= 5000000"
+      }
+    },
+    // Edits and cursors can only be added while their document exists (clearing them is always allowed).
     "updates": {
       "$docId": {
         ".read": "auth != null",

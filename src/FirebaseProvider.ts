@@ -1,6 +1,6 @@
 import * as Y from 'yjs'
 import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate, removeAwarenessStates } from 'y-protocols/awareness'
-import { onChildAdded, onChildChanged, onChildRemoved, onDisconnect, onValue, push, ref, remove, set } from 'firebase/database'
+import { get, onChildAdded, onChildChanged, onChildRemoved, onDisconnect, onValue, push, ref, remove, set } from 'firebase/database'
 import { db } from './firebase'
 
 export const toB64 = (u: Uint8Array) => {
@@ -21,7 +21,7 @@ const tryApply = (path: string, apply: () => void) => {
 
 // Syncs a Y.Doc between everyone who has the same document open.
 // Every edit is pushed to updates/<docId>, and everyone (including late joiners)
-// merges the saved snapshot plus that list. Cursors live in awareness/<docId>/<clientID>.
+// merges the saved snapshot (docContent/<docId>) plus that list. Cursors live in awareness/<docId>/<clientID>.
 export class FirebaseProvider {
   awareness: Awareness
   private doc: Y.Doc
@@ -40,14 +40,15 @@ export class FirebaseProvider {
       tryApply(`awareness/${docId}/${snap.key}`, () => applyAwarenessUpdate(this.awareness, fromB64(snap.val()), this))
 
     this.unsubscribes = [
-      // The saved snapshot, re-merged whenever someone compacts the update list.
-      onValue(ref(db, `documents/${docId}/content`), (snap) => {
-        if (snap.exists()) tryApply(`documents/${docId}/content`, () => Y.applyUpdate(doc, fromB64(snap.val()), this))
-      }),
       onChildAdded(updatesRef, (snap) => {
         tryApply(`updates/${docId}/${snap.key}`, () => Y.applyUpdate(doc, fromB64(snap.val()), this))
         // Bad entries are marked applied too, so the next snapshot clears them out.
         this.appliedKeys.add(snap.key!)
+      }),
+      // While connected we see every update before it is compacted away, so the saved
+      // snapshot is only read on (re)connecting, after the update listener is in place.
+      onValue(ref(db, '.info/connected'), (snap) => {
+        if (snap.val()) this.loadSnapshot()
       }),
       onChildAdded(awarenessRef, applyAwareness),
       onChildChanged(awarenessRef, applyAwareness),
@@ -74,10 +75,17 @@ export class FirebaseProvider {
   snapshotWrites() {
     const keys = [...this.appliedKeys]
     const writes: Record<string, string | null> = {
-      [`documents/${this.docId}/content`]: toB64(Y.encodeStateAsUpdate(this.doc)),
+      [`docContent/${this.docId}`]: toB64(Y.encodeStateAsUpdate(this.doc)),
+      [`documents/${this.docId}/content`]: null, // snapshots used to live here
     }
     for (const key of keys) writes[`updates/${this.docId}/${key}`] = null
     return { writes, onSaved: () => keys.forEach((key) => this.appliedKeys.delete(key)) }
+  }
+
+  private async loadSnapshot() {
+    let snap = await get(ref(db, `docContent/${this.docId}`))
+    if (!snap.exists()) snap = await get(ref(db, `documents/${this.docId}/content`))
+    if (snap.exists()) tryApply(snap.ref.toString(), () => Y.applyUpdate(this.doc, fromB64(snap.val()), this))
   }
 
   private myAwarenessRef() {
