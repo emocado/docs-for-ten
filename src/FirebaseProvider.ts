@@ -1,7 +1,8 @@
 import * as Y from 'yjs'
 import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate, removeAwarenessStates } from 'y-protocols/awareness'
 import { get, onChildAdded, onChildChanged, onChildRemoved, onDisconnect, onValue, push, ref, remove, set } from 'firebase/database'
-import { db } from './firebase'
+import * as decoding from 'lib0/decoding'
+import { auth, db } from './firebase'
 
 export const toB64 = (u: Uint8Array) => {
   let s = ''
@@ -19,9 +20,29 @@ const tryApply = (path: string, apply: () => void) => {
   }
 }
 
+const COLORS = ['#e6194b', '#3cb44b', '#4363d8', '#f58231', '#911eb4', '#469990', '#9a6324', '#800000', '#808000', '#000075']
+export const userFor = (email: string) => ({
+  name: email.split('@')[0],
+  color: COLORS[[...email].reduce((h, c) => h + c.charCodeAt(0), 0) % COLORS.length],
+})
+
+type Presence = { uid: string; email: string; update: string }
+
+// The rules check each cursor entry's email, so only trust an update that is about
+// that entry's own client and shows the name and colour that email gives.
+const isGenuine = (clientID: number, email: string, update: Uint8Array) => {
+  const decoder = decoding.createDecoder(update)
+  if (decoding.readVarUint(decoder) !== 1 || decoding.readVarUint(decoder) !== clientID) return false
+  decoding.readVarUint(decoder) // clock
+  const state = JSON.parse(decoding.readVarString(decoder))
+  const user = userFor(email)
+  return state === null || (state.user?.name === user.name && state.user?.color === user.color)
+}
+
 // Syncs a Y.Doc between everyone who has the same document open.
 // Every edit is pushed to updates/<docId>, and everyone (including late joiners)
-// merges the saved snapshot (docContent/<docId>) plus that list. Cursors live in awareness/<docId>/<clientID>.
+// merges the saved snapshot (docContent/<docId>) plus that list. Cursors live in awareness/<docId>/<clientID>,
+// tagged with the uid and email of whoever owns them.
 export class FirebaseProvider {
   awareness: Awareness
   private doc: Y.Doc
@@ -36,8 +57,12 @@ export class FirebaseProvider {
 
     const updatesRef = ref(db, `updates/${docId}`)
     const awarenessRef = ref(db, `awareness/${docId}`)
-    const applyAwareness = (snap: { key: string | null; val: () => string }) =>
-      tryApply(`awareness/${docId}/${snap.key}`, () => applyAwarenessUpdate(this.awareness, fromB64(snap.val()), this))
+    const applyAwareness = (snap: { key: string | null; val: () => Presence }) =>
+      tryApply(`awareness/${docId}/${snap.key}`, () => {
+        const { email, update } = snap.val()
+        const bytes = fromB64(update)
+        if (isGenuine(Number(snap.key), email, bytes)) applyAwarenessUpdate(this.awareness, bytes, this)
+      })
 
     this.unsubscribes = [
       onChildAdded(updatesRef, (snap) => {
@@ -98,7 +123,9 @@ export class FirebaseProvider {
 
   private onAwarenessUpdate = (_changes: unknown, origin: unknown) => {
     if (origin === this || !this.awareness.getLocalState()) return
-    set(this.myAwarenessRef(), toB64(encodeAwarenessUpdate(this.awareness, [this.doc.clientID])))
+    const { uid, email } = auth.currentUser!
+    const presence: Presence = { uid, email: email!, update: toB64(encodeAwarenessUpdate(this.awareness, [this.doc.clientID])) }
+    set(this.myAwarenessRef(), presence)
   }
 
   destroy() {
