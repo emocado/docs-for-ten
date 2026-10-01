@@ -16,14 +16,15 @@ A tiny Google Docs for a group of ten: write the same document together, at the 
 
 ## How it works
 
-- **Login + database:** [InstantDB](https://instantdb.com) (free plan). Members sign in with a code sent to their email.
-- **Rules:** enforced by InstantDB permissions. See [`instant.perms.ts`](instant.perms.ts) and the data model in [`instant.schema.ts`](instant.schema.ts).
-- **Live editing:** the [TipTap](https://tiptap.dev) editor stores text in a [Yjs](https://yjs.dev) CRDT, so edits from different people always merge. Edits and cursor positions travel over an InstantDB room, one per document ([`src/InstantProvider.ts`](src/InstantProvider.ts)).
-- **Saving:** each open editor saves the merged Yjs state to the `documents` table one second after the last change.
+- **Login + database:** [Firebase](https://firebase.google.com) on the free Spark plan: email + password Auth and the Realtime Database.
+- **Rules:** enforced by Realtime Database security rules. See [`database.rules.json`](database.rules.json).
+- **Live editing:** the [TipTap](https://tiptap.dev) editor stores text in a [Yjs](https://yjs.dev) CRDT, so edits from different people always merge. Each edit is pushed to `updates/<docId>`, and everyone, including people who open the document later, merges that list. Cursor positions live in `awareness/<docId>` and disappear when someone disconnects ([`src/FirebaseProvider.ts`](src/FirebaseProvider.ts)).
+- **Saving:** a second after you stop typing, your editor saves a snapshot of the whole document to `documents/<docId>/content` and clears the edits it now contains.
 
 ## Run it locally
 
 1. `npm install`
-2. `npx instant-cli@latest login`, then create an app with `npx instant-cli@latest init-without-files --title docs-for-ten` and put its `appId` in `.env` as `VITE_INSTANT_APP_ID` (see `.env.example`).
-3. `npx instant-cli@latest push schema` and `npx instant-cli@latest push perms`
-4. `npm run dev`, and open the app in two browser windows signed in as different people.
+2. Create a Firebase project with a web app and a Realtime Database, and turn on **Email/Password** sign-in (Authentication → Sign-in method).
+3. Copy `.env.example` to `.env` and fill in the web app's config.
+4. `npx firebase deploy --only database --project <your-project-id>` to publish the rules.
+5. `npm run dev`, and open the app in two browser windows signed in as different people.
