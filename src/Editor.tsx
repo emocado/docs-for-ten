@@ -4,10 +4,11 @@ import { EditorContent, useEditor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Collaboration from '@tiptap/extension-collaboration'
 import CollaborationCaret from '@tiptap/extension-collaboration-caret'
-import { db } from './db'
-import { InstantProvider, fromB64, toB64 } from './InstantProvider'
+import { get, ref, update } from 'firebase/database'
+import { db } from './firebase'
+import { FirebaseProvider } from './FirebaseProvider'
 
-type Session = { doc: Y.Doc; provider: InstantProvider }
+type Session = { doc: Y.Doc; provider: FirebaseProvider; savedTitle: string }
 type Peer = { name: string; color: string }
 
 const COLORS = ['#e6194b', '#3cb44b', '#4363d8', '#f58231', '#911eb4', '#469990', '#9a6324', '#800000', '#808000', '#000075']
@@ -20,16 +21,12 @@ export default function Editor({ docId, email }: { docId: string; email: string 
   useEffect(() => {
     let current: Session | undefined
     let cancelled = false
-    db.queryOnce({ documents: { $: { where: { id: docId } } } })
-      .then(({ data }) => {
+    get(ref(db, `documents/${docId}/title`))
+      .then((snap) => {
         if (cancelled) return
-        const row = data.documents[0]
-        if (!row) return setError('Document not found')
+        if (!snap.exists()) return setError('Document not found')
         const doc = new Y.Doc()
-        if (row.content) Y.applyUpdate(doc, fromB64(row.content))
-        const meta = doc.getMap<string>('meta')
-        if (!meta.has('title')) meta.set('title', row.title)
-        current = { doc, provider: new InstantProvider(docId, doc) }
+        current = { doc, provider: new FirebaseProvider(docId, doc), savedTitle: snap.val() }
         setSession(current)
       })
       .catch((err) => !cancelled && setError(err.message))
@@ -45,9 +42,9 @@ export default function Editor({ docId, email }: { docId: string; email: string 
   return <LiveEditor docId={docId} email={email} {...session} />
 }
 
-function LiveEditor({ docId, email, doc, provider }: Session & { docId: string; email: string }) {
+function LiveEditor({ docId, email, doc, provider, savedTitle }: Session & { docId: string; email: string }) {
   const meta = doc.getMap<string>('meta')
-  const [title, setTitle] = useState(meta.get('title') ?? '')
+  const [title, setTitle] = useState(meta.get('title') ?? savedTitle)
   const [peers, setPeers] = useState<Peer[]>([])
   const [saved, setSaved] = useState(true)
 
@@ -61,7 +58,7 @@ function LiveEditor({ docId, email, doc, provider }: Session & { docId: string; 
 
   // Keep the title and the list of people here in sync with everyone else.
   useEffect(() => {
-    const onTitle = () => setTitle(meta.get('title') ?? '')
+    const onTitle = () => setTitle(meta.get('title') ?? savedTitle)
     const onPeers = () =>
       setPeers([...provider.awareness.getStates().values()].map((s) => s.user).filter(Boolean))
     meta.observe(onTitle)
@@ -71,25 +68,21 @@ function LiveEditor({ docId, email, doc, provider }: Session & { docId: string; 
       meta.unobserve(onTitle)
       provider.awareness.off('change', onPeers)
     }
-  }, [meta, provider])
+  }, [meta, provider, savedTitle])
 
-  // Persist the whole document a second after the last change, from any editor.
+  // Save a snapshot a second after this person's last change.
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout>
     const save = async () => {
-      await db.transact(
-        db.tx.documents[docId].update(
-          {
-            title: meta.get('title') || 'Untitled document',
-            content: toB64(Y.encodeStateAsUpdate(doc)),
-            updatedAt: Date.now(),
-          },
-          { upsert: false },
-        ),
-      )
+      await update(ref(db), {
+        ...provider.snapshotWrites(),
+        [`documents/${docId}/title`]: meta.get('title') || savedTitle,
+        [`documents/${docId}/updatedAt`]: Date.now(),
+      })
       setSaved(true)
     }
-    const onUpdate = () => {
+    const onUpdate = (_update: Uint8Array, origin: unknown) => {
+      if (origin === provider) return
       setSaved(false)
       clearTimeout(timer)
       timer = setTimeout(save, 1000)
@@ -99,7 +92,7 @@ function LiveEditor({ docId, email, doc, provider }: Session & { docId: string; 
       doc.off('update', onUpdate)
       clearTimeout(timer)
     }
-  }, [doc, docId, meta])
+  }, [doc, docId, meta, provider, savedTitle])
 
   return (
     <div className="editor-page">

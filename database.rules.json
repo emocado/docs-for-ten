@@ -1,0 +1,19 @@
+{
+  "rules": {
+    // Members can read and edit any document, but only its creator can delete it
+    // (and nobody can change who the creator is).
+    "documents": {
+      ".read": "auth != null",
+      ".indexOn": ["updatedAt"],
+      "$docId": {
+        ".write": "auth != null && (newData.exists() ? newData.child('ownerId').val() === (data.exists() ? data.child('ownerId').val() : auth.uid) : data.child('ownerId').val() === auth.uid)"
+      }
+    },
+    "updates": {
+      "$docId": { ".read": "auth != null", ".write": "auth != null" }
+    },
+    "awareness": {
+      "$docId": { ".read": "auth != null", ".write": "auth != null" }
+    }
+  }
+}
