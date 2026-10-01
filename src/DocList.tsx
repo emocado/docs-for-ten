@@ -32,7 +32,7 @@ export default function DocList({ userId, email }: { userId: string; email: stri
 
   function remove(doc: Doc) {
     if (!confirm(`Delete "${doc.title}"?`)) return
-    update(ref(db), { [`documents/${doc.id}`]: null, [`updates/${doc.id}`]: null }).catch((err) => setError(err.message))
+    update(ref(db), { [`documents/${doc.id}`]: null, [`updates/${doc.id}`]: null, [`awareness/${doc.id}`]: null }).catch((err) => setError(err.message))
   }
 
   return (
