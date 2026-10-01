@@ -61,14 +61,15 @@ export class FirebaseProvider {
   }
 
   // Database writes that fold the updates seen so far into a saved snapshot.
-  snapshotWrites(): Record<string, string | null> {
+  // Call onSaved once they succeed, so a failed save keeps the keys to compact later.
+  snapshotWrites() {
+    const keys = [...this.appliedKeys]
     const writes: Record<string, string | null> = {
       [`docContent/${this.docId}`]: toB64(Y.encodeStateAsUpdate(this.doc)),
       [`documents/${this.docId}/content`]: null, // snapshots used to live here
     }
-    for (const key of this.appliedKeys) writes[`updates/${this.docId}/${key}`] = null
-    this.appliedKeys.clear()
-    return writes
+    for (const key of keys) writes[`updates/${this.docId}/${key}`] = null
+    return { writes, onSaved: () => keys.forEach((key) => this.appliedKeys.delete(key)) }
   }
 
   private async loadSnapshot() {

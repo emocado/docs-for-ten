@@ -13,11 +13,12 @@
     "docContent": {
       "$docId": { ".read": "auth != null", ".write": "auth != null" }
     },
+    // Edits and cursors can only be added while their document exists (clearing them is always allowed).
     "updates": {
-      "$docId": { ".read": "auth != null", ".write": "auth != null" }
+      "$docId": { ".read": "auth != null", ".write": "auth != null && (root.child('documents/' + $docId).exists() || !newData.exists())" }
     },
     "awareness": {
-      "$docId": { ".read": "auth != null", ".write": "auth != null" }
+      "$docId": { ".read": "auth != null", ".write": "auth != null && (root.child('documents/' + $docId).exists() || !newData.exists())" }
     }
   }
 }
