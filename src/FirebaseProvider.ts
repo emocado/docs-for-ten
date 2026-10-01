@@ -10,6 +10,15 @@ export const toB64 = (u: Uint8Array) => {
 }
 export const fromB64 = (s: string) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0))
 
+// Skips (and logs) a malformed entry instead of letting it break syncing.
+const tryApply = (path: string, apply: () => void) => {
+  try {
+    apply()
+  } catch (err) {
+    console.error(`Skipping bad data at ${path}`, err)
+  }
+}
+
 // Syncs a Y.Doc between everyone who has the same document open.
 // Every edit is pushed to updates/<docId>, and everyone (including late joiners)
 // merges the saved snapshot plus that list. Cursors live in awareness/<docId>/<clientID>.
@@ -27,23 +36,34 @@ export class FirebaseProvider {
 
     const updatesRef = ref(db, `updates/${docId}`)
     const awarenessRef = ref(db, `awareness/${docId}`)
-    const applyAwareness = (snap: { val: () => string }) =>
-      applyAwarenessUpdate(this.awareness, fromB64(snap.val()), this)
+    const applyAwareness = (snap: { key: string | null; val: () => string }) =>
+      tryApply(`awareness/${docId}/${snap.key}`, () => applyAwarenessUpdate(this.awareness, fromB64(snap.val()), this))
 
     this.unsubscribes = [
       // The saved snapshot, re-merged whenever someone compacts the update list.
       onValue(ref(db, `documents/${docId}/content`), (snap) => {
-        if (snap.exists()) Y.applyUpdate(doc, fromB64(snap.val()), this)
+        if (snap.exists()) tryApply(`documents/${docId}/content`, () => Y.applyUpdate(doc, fromB64(snap.val()), this))
       }),
       onChildAdded(updatesRef, (snap) => {
-        Y.applyUpdate(doc, fromB64(snap.val()), this)
+        tryApply(`updates/${docId}/${snap.key}`, () => Y.applyUpdate(doc, fromB64(snap.val()), this))
+        // Bad entries are marked applied too, so the next snapshot clears them out.
         this.appliedKeys.add(snap.key!)
       }),
       onChildAdded(awarenessRef, applyAwareness),
       onChildChanged(awarenessRef, applyAwareness),
-      onChildRemoved(awarenessRef, (snap) => removeAwarenessStates(this.awareness, [Number(snap.key)], this)),
+      onChildRemoved(awarenessRef, (snap) => {
+        // Our own node is removed by onDisconnect after a network drop; keep our local state.
+        if (Number(snap.key) !== doc.clientID) removeAwarenessStates(this.awareness, [Number(snap.key)], this)
+      }),
+      // onDisconnect runs once per connection, so set it up again on every (re)connect
+      // and re-announce our state (bumping its clock) in case the server already removed it.
+      onValue(ref(db, '.info/connected'), (snap) => {
+        if (!snap.val()) return
+        onDisconnect(this.myAwarenessRef()).remove()
+        const state = this.awareness.getLocalState()
+        if (state) this.awareness.setLocalState(state)
+      }),
     ]
-    onDisconnect(this.myAwarenessRef()).remove()
 
     doc.on('update', this.onDocUpdate)
     this.awareness.on('update', this.onAwarenessUpdate)

@@ -12,6 +12,7 @@ type Session = { doc: Y.Doc; provider: FirebaseProvider; savedTitle: string }
 type Peer = { name: string; color: string }
 
 const COLORS = ['#e6194b', '#3cb44b', '#4363d8', '#f58231', '#911eb4', '#469990', '#9a6324', '#800000', '#808000', '#000075']
+const TITLE_MAX = 200 // Same limit as database.rules.json.
 const colorFor = (s: string) => COLORS[[...s].reduce((h, c) => h + c.charCodeAt(0), 0) % COLORS.length]
 
 export default function Editor({ docId, email }: { docId: string; email: string }) {
@@ -89,7 +90,7 @@ function LiveEditor({ docId, email, doc, provider, savedTitle }: Session & { doc
       const { writes, onSaved } = provider.snapshotWrites()
       update(ref(db), {
         ...writes,
-        [`documents/${docId}/title`]: meta.get('title') || savedTitle,
+        [`documents/${docId}/title`]: String(meta.get('title') || savedTitle).slice(0, TITLE_MAX),
         [`documents/${docId}/updatedAt`]: Date.now(),
       })
         .then(() => {
@@ -116,12 +117,12 @@ function LiveEditor({ docId, email, doc, provider, savedTitle }: Session & { doc
     <div className="editor-page">
       <header className="toolbar">
         <a href="#">← All documents</a>
-        <input className="title" value={title} onChange={(e) => meta.set('title', e.target.value)} />
+        <input className="title" maxLength={TITLE_MAX} value={title} onChange={(e) => meta.set('title', e.target.value)} />
         <span className="status">{saveError ? `Save failed: ${saveError}` : saved ? 'Saved' : 'Saving…'}</span>
         <div className="peers">
           {peers.map((p, i) => (
             <span key={i} className="peer" style={{ background: p.color }} title={p.name}>
-              {p.name[0]?.toUpperCase()}
+              {p.name?.[0]?.toUpperCase()}
             </span>
           ))}
         </div>

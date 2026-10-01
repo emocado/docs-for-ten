@@ -42,9 +42,9 @@ export default function DocList({ userId, email }: { userId: string; email: stri
       <ul>
         {docs.map((doc) => (
           <li key={doc.id}>
-            <a href={`#/doc/${doc.id}`}>{doc.title}</a>
+            <a href={`#/doc/${doc.id}`}>{String(doc.title)}</a>
             <small>
-              {doc.ownerEmail} · edited {new Date(doc.updatedAt).toLocaleString()}
+              {String(doc.ownerEmail)} · edited {new Date(doc.updatedAt).toLocaleString()}
             </small>
             {doc.ownerId === userId && <button onClick={() => remove(doc)}>Delete</button>}
           </li>
